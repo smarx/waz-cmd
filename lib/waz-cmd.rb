@@ -1,6 +1,10 @@
 module Waz
   module Cmd
-    require 'faster_require'
+    begin
+      require 'faster_require' if RUBY_PLATFORM =~ /win32|mingw32/
+    rescue
+      puts 'WARNING: Waz will run faster on Windows if you install the "faster_require" gem.'
+    end
     require 'rexml/document'
     require 'rexml/xpath'
     require 'iconv'
@@ -10,7 +14,7 @@ module Waz
       puts 'WARNING: Output will look weird on Windows unless you install the "win32console" gem.'
     end
     require 'openssl'
-    require 'RestClient'
+    require 'rest_client'
     require 'tilt'
     require 'base64'
     require 'yaml'
