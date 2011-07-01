@@ -2,9 +2,9 @@
 require 'waz-cmd'
 require 'commander/import'
 require 'waz-blobs'
-require 'pathname'
 require 'uri'
 require 'uuidtools'
+require 'fileutils'
 
 include Waz::Cmd
 
@@ -87,10 +87,13 @@ command 'generate certificate' do |c|
     cert.sign(rsa, OpenSSL::Digest::SHA1.new)
 
     puts "Writing certificate to '#{options.pem}'"
+    FileUtils.makedirs(File.dirname(options.pem))
     File.open(options.pem, "w") {|f| f.puts cert}
     puts "Writing certificate in .cer form to '#{options.cer}'"
+    FileUtils.makedirs(File.dirname(options.cer))
     File.open(options.cer, "wb") {|f| f.write cert.to_der}
-    puts "Writing key to '#{options.pem}'"
+    puts "Writing key to '#{options.key}'"
+    FileUtils.makedirs(File.dirname(options.key))
     File.open(options.key, "w") {|f| f.puts rsa}
     puts
     puts "To use the new certificate, upload '#{options.cer}' as a management certificate in the Windows Azure portal (https://windows.azure.com)"
@@ -464,7 +467,7 @@ command 'deploy' do |c|
       container = WAZ::Blobs::Container.find('deployments')
     end
 
-    name = Pathname.new(args[2]).basename.to_s.gsub(' ', '') + Time.new.utc.strftime('%Y-%m-%d%H:%M:%S')
+    name = File.basename(args[2]).gsub(' ', '') + Time.new.utc.strftime('%Y-%m-%d%H:%M:%S')
     blob = nil
     open(args[2]) do |f|
       blob = container.upload(URI::escape(name), f, 'application/octet-stream')
