@@ -9,7 +9,7 @@ Gem::Specification.new do |s|
   s.authors     = ["Steve Marx"]
   s.email       = ["Steve.Marx@microsoft.com"]
   s.homepage    = "http://blog.smarx.com"
-  s.summary     = %q{Commandline tool to manage Windows Azure applications and storage accounts.}
+  s.summary     = %q{Command-line tool to manage Windows Azure applications and storage accounts.}
   s.description = %q{This gem allows you to perform most of the available operations in the Windows Azure Service Management API from a friendly commandline tool.}
 
   s.files         = `git ls-files`.split("\n")
