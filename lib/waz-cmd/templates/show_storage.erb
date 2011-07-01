@@ -1,0 +1,8 @@
+<%= account['ServiceName'] %>
+% props = account['StorageServiceProperties']
+% unless props['Location'].nil?
+Location:       <%= props['Location'] %>
+% end
+% unless props['AffinityGroup'].nil?
+Affinity Group: <%= props['AffinityGroup'] %>
+% end

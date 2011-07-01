@@ -1,0 +1,489 @@
+#!/usr/bin/env ruby
+require 'waz-cmd'
+require 'commander/import'
+require 'waz-blobs'
+require 'pathname'
+require 'uri'
+require 'uuidtools'
+
+include Waz::Cmd
+
+program :name, 'waz'
+program :version, '1.0'
+program :description, 'Windows Azure Command-line Tool'
+program :help, 'Author', 'Steve Marx (http://blog.smarx.com, Steve.Marx@microsoft.com, @smarx)'
+
+global_option '--pem FILE', 'Name of the .pem file containing the management certificate, deafault $HOME/.waz/cert.pem'
+global_option '--key FILE', 'Name of the .pem file containing the private key, default $HOME/.waz/key.pem'
+global_option '--subscriptionId STRING', 'Subscription ID (a GUID) to operate on'
+global_option '--expand', 'Expand details where possible (like individual role instances). Default is false'
+
+begin
+  $config = YAML::load(File.read("#{ENV['HOME']}/.wazrc"))
+rescue
+  $config = {}
+end
+
+def template(name)
+  File.join(File.dirname(__FILE__), '../lib/waz-cmd/templates', name)
+end
+
+command 'set' do |c|
+  c.syntax = 'waz set <variable> <value>'
+  c.description = 'Set a default value for a variable (like "subscriptionId") in $HOME/.wazrc'
+  c.action do |args, options|
+    $config[args[0]] = args[1]
+    File.open("#{ENV['HOME']}/.wazrc", 'w') do |f|
+      f.write($config.to_yaml)
+    end
+  end
+end
+
+command 'get' do |c|
+  c.syntax = 'waz get <variable>'
+  c.description = 'Get the default value for a variable (like "subscriptionId") in $HOME/.wazrc'
+  c.action do |args, options|
+    puts $config[args[0]]
+  end
+end
+
+command 'get-all' do |c|
+  c.syntax = 'waz get-all'
+  c.description = 'Get the default values for all variables (like "subscriptionId") in $HOME/.wazrc'
+  c.action do |args, options|
+    $config.each do |k,v|
+      puts "#{k} = #{v}"
+    end
+  end
+end
+
+command 'generate certificate' do |c|
+  c.syntax = 'waz generate certificate [options]'
+  c.description = 'Generate a public/private key pair to use with the Windows Azure Service Management API'
+  c.option '--cer FILE', 'Name of the .cer file to write the public certificate, default $HOME/.waz/cert.cer'
+  c.action do |args, options|
+    set_defaults options
+    rsa = OpenSSL::PKey::RSA.new 1024
+    cert = OpenSSL::X509::Certificate.new
+    cert.version = 3
+    cert.serial = 0
+    name = OpenSSL::X509::Name.new([['CN', 'waz']])
+    cert.subject = name
+    cert.issuer = name
+    cert.not_before = 0
+    cert.not_after = 2147483647 #LONG_MAX
+    cert.public_key = rsa.public_key
+
+    ef = OpenSSL::X509::ExtensionFactory.new(nil,cert)
+    ef.issuer_certificate = cert
+    cert.extensions = [
+      ef.create_extension("basicConstraints","CA:FALSE"),
+      ef.create_extension("keyUsage", "keyEncipherment"),
+      ef.create_extension("subjectKeyIdentifier", "hash"),
+      ef.create_extension("extendedKeyUsage", "serverAuth"),
+    ]
+    aki = ef.create_extension("authorityKeyIdentifier", "keyid:always,issuer:always")
+    cert.add_extension(aki)
+    cert.sign(rsa, OpenSSL::Digest::SHA1.new)
+
+    puts "Writing certificate to '#{options.pem}'"
+    File.open(options.pem, "w") {|f| f.puts cert}
+    puts "Writing certificate in .cer form to '#{options.cer}'"
+    File.open(options.cer, "wb") {|f| f.write cert.to_der}
+    puts "Writing key to '#{options.pem}'"
+    File.open(options.key, "w") {|f| f.puts rsa}
+    puts
+    puts "To use the new certificate, upload '#{options.cer}' as a management certificate in the Windows Azure portal (https://windows.azure.com)"
+  end
+end
+
+command 'list applications' do |c|
+  c.syntax = 'waz list applications [options]'
+  c.description = 'List all Windows Azure applications under the given subscription'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    apps = arrayize(make_call("services/hostedservices", :get, options)['HostedServices']['HostedService'])
+    puts Tilt.new(template('list_applications.erb'), 1, :trim => '%').render(nil, :apps => apps)
+  end
+end
+
+command 'list storage' do |c|
+  c.syntax = 'waz list storage'
+  c.description = 'List all Windows Azure storage accounts under the given subscription'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    apps = arrayize(make_call("services/storageservices", :get, options)['StorageServices']['StorageService'])
+    puts Tilt.new(template('list_applications.erb'), 1, :trim => '%').render(nil, :apps => apps)
+  end
+end
+
+command 'show application' do |c|
+  c.syntax = 'waz show application <name> [options]'
+  c.description = 'Show the details of an application'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args.first
+    app = make_call("services/hostedservices/#{args.first}?embed-detail=true", :get, options)['HostedService']
+    puts Tilt.new(template('show_application.erb'), 1, :trim => '%').render(nil, :app => app, :expand => options.expand)
+  end
+end
+
+command 'show storage' do |c|
+  c.syntax = 'waz show storage <name> [options]'
+  c.description = 'Show the details of a storage account'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Storage account name is required' unless args.first
+    account = make_call("services/storageservices/#{args.first}", :get, options)['StorageService']
+    puts Tilt.new(template('show_storage.erb'), 1, :trim => '%').render(nil, :account => account)
+  end
+end
+
+command 'delete storage' do |c|
+  c.syntax = 'was delete storage <name> [options]'
+  c.description = 'Delete a storage account'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Storage account name is required' unless args.first
+    make_call("services/storageservices/#{args.first}", :delete, options) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+  end
+end
+
+command 'get keys' do |c|
+  c.syntax = 'waz get keys <name> [options]'
+  c.description = 'Get the keys for a storage account'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Storage account name is required' unless args.first
+    keys = make_call("services/storageservices/#{args.first}/keys", :get, options)['StorageService']['StorageServiceKeys']
+    puts Tilt.new(template('get_keys.erb'), 1, :trim => '%').render(nil, :keys => keys)
+  end
+end
+
+command 'connection string' do |c|
+  c.syntax = 'waz get connection string <name> [options]'
+  c.description = 'Get a connection string for a storage account'
+  c.option '--http', 'Use HTTP in the connection string instead of (the default) HTTPS'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Storage account name is required' unless args.first
+    keys = make_call("services/storageservices/#{args.first}/keys", :get, options)['StorageService']['StorageServiceKeys']
+    puts "DefaultEndpointsProtocol=#{options.http ? 'http' : 'https'};AccountName=#{args.first};AccountKey=#{keys['Primary']}"
+  end
+end
+
+alias_command 'cs', 'connection string'
+
+command 'create storage' do |c|
+  c.syntax = 'waz create storage <name> <location|affinity group> [options]'
+  c.description = 'Create a storage account'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Storage account name is required' unless args.first
+    raise 'Location or affinity group is required' unless args[1]
+    make_call("services/storageservices", :post, options,
+      Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
+        xml.CreateStorageServiceInput('xmlns' => 'http://schemas.microsoft.com/windowsazure') {
+          xml.ServiceName args[0]
+          xml.Description args[0]
+          xml.Label Base64.encode64(args[0]).rstrip
+          if args[1].length > 20
+            xml.AffinityGroup args[1]
+          else
+            xml.Location args[1]
+          end
+        }
+      }.to_xml) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+  end
+end
+
+command 'create application' do |c|
+  c.syntax = 'waz create application <name> <location|affinity group> [options]'
+  c.description = 'Create a storage account'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args.first
+    raise 'Location or affinity group is required' unless args[1]
+    make_call("services/hostedservices", :post, options,
+      Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
+        xml.CreateHostedService(:xmlns => 'http://schemas.microsoft.com/windowsazure') {
+          xml.ServiceName args[0]
+          xml.Label Base64.encode64(args[0]).rstrip
+          if args[1].length > 20
+            xml.AffinityGroup args[1]
+          else
+            xml.Location args[1]
+          end
+        }
+      }.to_xml) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+  end
+end
+
+command 'delete application' do |c|
+  c.syntax = 'waz delete application <name> [options]'
+  c.description = 'Delete an application'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args.first
+    make_call("services/hostedservices/#{args.first}", :delete, options) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+  end
+end
+
+command 'list locations' do |c|
+  c.syntax = 'waz list locations [options]'
+  c.description = 'List data center locations'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    locations = arrayize(make_call("locations", :get, options)['Locations']['Location'])
+    puts Tilt.new(template('list_locations.erb'), 1, :trim => '%').render(nil, :locations => locations)
+  end
+end
+
+command 'list affinity groups' do |c|
+  c.syntax = 'waz list affinity groups [options]'
+  c.description = 'List affinity groups'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    groups = arrayize(make_call("affinitygroups", :get, options)['AffinityGroups']['AffinityGroup'])
+    puts Tilt.new(template('list_affinity_groups.erb'), 1, :trim => '%').render(nil, :groups => groups)
+  end
+end
+
+command 'create affinity group' do |c|
+  c.syntax = 'waz create affinity group <name> <location> [options]'
+  c.description = 'Create an affinity group'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Affinity group name is required' unless args.first
+    raise 'Location is required' unless args[1]
+    make_call("affinitygroups", :post, options,
+      Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
+        xml.CreateAffinityGroup(:xmlns => 'http://schemas.microsoft.com/windowsazure') {
+          xml.Name args[0]
+          xml.Label Base64.encode64(args[0]).rstrip
+          xml.Location args[1]
+        }
+      }.to_xml) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+  end
+end
+
+command 'show affinity group' do |c|
+  c.syntax = 'waz show affinity group <name> [options]'
+  c.description = 'Show the details of an affinity group'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Affinity group name is required' unless args.first
+    group = make_call("affinitygroups/#{args[0]}", :get, options)['AffinityGroup']
+    puts Tilt.new(template('show_affinity_group.erb'), 1, :trim => '%').render(nil, :group => group)
+  end
+end
+
+command 'delete affinity group' do |c|
+  c.syntax = 'waz delete affinity group <name> [options]'
+  c.description = 'Delete an affinity group'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+      raise 'Affinity group name is required' unless args.first
+      make_call("affinitygroups/#{args[0]}", :delete, options) do |response|
+        wait_for_completion options, response.headers[:x_ms_request_id]
+      end		
+  end
+end
+
+command 'show deployment' do |c|
+  c.syntax = 'waz show deployment <application> <staging|production> [options]'
+  c.description = 'Show the details of a deployment'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args.first
+    raise 'Deployment slot is required' unless args[1]
+    deployment = make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :get, options)['Deployment']
+    puts Tilt.new(template('show_deployment.erb'), 1, :trim => '%').render(nil, :expand => options.expand, :deployment => deployment)
+  end
+end
+
+command 'show history' do |c|
+  c.syntax = 'waz show history <application> <deployment-name> [options]'
+  c.description = 'Show the history of operations on a deployment. Note that deployment name is the GUID of the deployment (find it with something like "waz show deployment <application> production")'
+  c.option '--startTime STRING', 'Earliest time to retrieve history, in a form like YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ (defaults to yesterday)'
+  c.option '--endTime STRING', 'Latest time to retrieve history, in a form like YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ (defaults to infinity)'
+  c.action do |args, options|
+    set_defaults options
+    options.default :startTime => (Time.now-24*60*60).strftime("%Y-%m-%d"), :endTime => Time.at(2147483647).strftime("%Y-%m-%d") #LONG_MAX
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args.first
+    raise 'Deployment name is required' unless args[1]
+    history = make_call("operations?StartTime=#{options.startTime}&EndTime=#{options.endTime}&ObjectIdFilter=/#{options.subscriptionId}/services/hostedservices/#{args[0]}/deployments/#{args[1]}", :get, options)['SubscriptionOperationCollection']['SubscriptionOperations']
+    puts Tilt.new(template('show_history.erb'), 1, :trim => '%').render(nil, :history => history)
+  end
+end
+
+restar_instance 'boot'
+restar_instance 'image'
+
+command 'swap' do |c|
+  c.syntax = 'waz swap <application> [options]'
+  c.description = 'Perform a VIP swap between staging and production of the specified application'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args[0]
+    deployments = arrayize(make_call("services/hostedservices/#{args[0]}?embed-detail=true", :get, options)['HostedService']['Deployments']['Deployment'])
+    prodidx = deployments.index{|d| d['DeploymentSlot'] == 'Production'}
+    stageidx = deployments.index{|d| d['DeploymentSlot'] == 'Staging'}
+    raise 'No staging deployment to swap.' unless stageidx
+    production = prodidx ? deployments[prodidx]['Name'] : nil
+    staging = stageidx ? deployments[stageidx]['Name'] : nil
+    make_call("services/hostedservices/#{args[0]}", :post, options,
+      Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
+        xml.Swap('xmlns' => 'http://schemas.microsoft.com/windowsazure') {
+          if production
+            xml.Production production
+          end
+          xml.SourceDeployment staging
+        }
+      }.to_xml) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+  end
+end
+
+startstop('start', 'Running')
+startstop('stop', 'Suspended')
+
+command 'delete deployment' do |c|
+  c.syntax = 'waz delete deployment <application> <production|staging> [options]'
+  c.description = 'Delete a deployment'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args[0]
+    raise 'Deployment slot is required' unless args[1]
+
+    make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :delete, options) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+  end
+end
+
+command 'show configuration' do |c|
+  c.syntax = 'waz show configuration <application> <production|staging> [options]'
+  c.description = 'Show deployment configuration'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args[0]
+    raise 'Deployment slot is required' unless args[1]
+
+    roles = arrayize(Crack::XML.parse(Iconv.conv('utf-16', 'utf-8', Base64.decode64(make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :get, options)['Deployment']['Configuration'])))['ServiceConfiguration']['Role'])
+
+    puts Tilt.new(template('show_configuration.erb'), 1, :trim => '%').render(nil, :roles => roles)
+  end
+end
+
+command 'configure' do |c|
+  c.syntax = 'waz configure <application> <production|staging> <role> <setting-name> <setting-value> [options]'
+  c.description = 'Change a configuration setting for a role of a deployment'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args[0]
+    raise 'Deployment slot is required' unless args[1]
+    raise 'Role name is required' unless args[2]
+    raise 'Setting name is required' unless args[3]
+    raise 'Setting value is required' unless args[4]
+
+    doc = REXML::Document.new(Iconv.conv('utf-16', 'utf-8', Base64.decode64(make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :get, options)['Deployment']['Configuration'])))
+    role = REXML::XPath.first(doc, "//Role[@name='#{args[2]}']")
+    raise "Couldn't find role '#{args[2]}'" if role.nil?
+    setting = REXML::XPath.first(role, "//Setting[@name='#{args[3]}']")
+    raise "Couldn't find setting '#{args[3]}'" if setting.nil?
+    setting.attributes['value'] = args[4]
+
+    make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}/?comp=config", :post, options,
+      Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
+        xml.ChangeConfiguration('xmlns' => 'http://schemas.microsoft.com/windowsazure') {
+          xml.Configuration Base64.encode64(Iconv.conv('utf-8', 'utf-16', doc.to_s)).rstrip
+        }
+      }.to_xml) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+  end
+end
+
+command 'deploy' do |c|
+  c.syntax = 'waz deploy <application> <production|staging> <path/to/.cspkg> <path/to/.cscfg> [options]'
+  c.description = 'Deploy to an existing Windows Azure application'
+  c.option '--deploymentAccount STRING', 'Name of the storage account to deploy through (temporarily hold the .cspkg), defaults to the first storage account in the subscription'
+  c.action do |args, options|
+    set_defaults options
+    raise 'Subscription ID is required' unless options.subscriptionId
+    raise 'Application name is required' unless args[0]
+    raise 'Deployment slot is required' unless args[1]
+    raise 'Package (.cspkg) is required' unless args[2]
+    raise 'Configuration file (.cscfg) is required' unless args[3]
+
+    if options.account.nil?
+      accounts = arrayize(make_call("services/storageservices", :get, options)['StorageServices']['StorageService'])
+      raise 'Must have at least one storage account' unless accounts.length > 0
+      options.account = accounts[0]['ServiceName']
+    end
+
+    key = make_call("services/storageservices/#{options.account}/keys", :get, options)['StorageService']['StorageServiceKeys']['Primary']
+
+    WAZ::Storage::Base.establish_connection!(:account_name => options.account, :access_key => key)
+    begin
+      container = WAZ::Blobs::Container.create('deployments')
+    rescue
+      container = WAZ::Blobs::Container.find('deployments')
+    end
+
+    name = Pathname.new(args[2]).basename.to_s.gsub(' ', '') + Time.new.utc.strftime('%Y-%m-%d%H:%M:%S')
+    blob = nil
+    open(args[2]) do |f|
+      blob = container.upload(URI::escape(name), f, 'application/octet-stream')
+    end
+
+    make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :post, options,
+      Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
+        xml.CreateDeployment('xmlns' => 'http://schemas.microsoft.com/windowsazure') {
+          xml.Name UUIDTools::UUID.random_create.to_s.gsub '-', ''
+          xml.PackageUrl URI::unescape blob.url
+          xml.Label Base64.encode64 name
+          xml.Configuration Base64.encode64 File.read args[3]
+          xml.StartDeployment 'true'
+          xml.TreatWarningsAsError 'false'
+        }
+      }.to_xml) do |response|
+      wait_for_completion options, response.headers[:x_ms_request_id]
+    end
+
+    blob.destroy!
+  end
+end

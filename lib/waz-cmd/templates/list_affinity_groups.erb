@@ -1,0 +1,3 @@
+% groups.each do |group|
+<%= Tilt.new('show_affinity_group.erb', 1, :trim => '%').render(nil, :group => group) %>
+% end

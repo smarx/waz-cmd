@@ -1,0 +1,11 @@
+<%= app['ServiceName'] %>
+% props = app['HostedServiceProperties']
+% unless app['Deployments']['Deployment'].nil?
+% deployments = app['Deployments']['Deployment']
+% deployments = [deployments] unless deployments.kind_of? Array
+% deployments.each do |deployment|
+<%= Tilt.new(template('show_deployment.erb'), 1, :trim => '%').render(nil, :deployment => deployment, :expand => expand).gsub(/^/, '    ') %>
+% end
+% else
+Nothing deployed.
+% end

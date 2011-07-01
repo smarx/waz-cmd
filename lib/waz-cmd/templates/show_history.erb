@@ -1,0 +1,21 @@
+% if history['SubscriptionOperation'].nil?
+No history to display.
+% else
+% operations = history['SubscriptionOperation']
+% operations = [operations] unless operations.kind_of? Array
+% operations.each do |operation|
+<%= $terminal.color operation['OperationName'], :bold %>
+    ID:         <%= operation['OperationId'] %>
+    Parameters: <%= operation['OperationParameters']['OperationParameter'].sort{|a,b| a['a:Name'] <=> b['a:Name']}.map{|p| "#{p['a:Name']}=#{p['a:Value'].length > 30 ? '...' : p['a:Value']}"}.join ', ' %>
+    Status:     <%= operation['OperationStatus']['Status'] %> (<%= operation['OperationStatus']['HttpStatusCode'] %>)
+    Start:      <%= operation['OperationStartedTime'] %>
+% if operation['OperationCompletedTime']
+    Completed:  <%= operation['OperationCompletedTime'] %>
+% end
+% if operation['OperationCaller']['UsedServiceManagementApi'] == 'true'
+    Caller:     <%= operation['OperationCaller']['ClientIP'] %> (<%= operation['OperationCaller']['SubscriptionCertificateThumbprint'] %>)
+% else
+    Caller:     <%= operation['OperationCaller']['UserEmailAddress'] %>
+% end
+% end
+% end

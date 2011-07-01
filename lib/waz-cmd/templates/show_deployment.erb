@@ -1,0 +1,33 @@
+<%= $terminal.color deployment['DeploymentSlot'].upcase, :bold %>
+    Label:          <%= Base64.decode64 deployment['Label'] %>
+    Name:           <%= deployment['Name'] %>
+    Status:         <%= deployment['Status'] %>
+    Url:            <%= deployment['Url'] %>
+% if deployment['SdkVersion']
+    SDK version:    <%= deployment['SdkVersion'] %>
+% end
+% if deployment['UpgradeStatus']
+    Upgrade status: <%= deployment['UpgradeStatus']['UpgradeType'] %> upgrade in progress, on upgrade domain <%= deployment['UpgradeStatus'][0]['CurrentUpgradeDomain'] %>/<%= deployment['UpgradeDomainCount'] %>
+% end
+% instances = deployment['RoleInstanceList']['RoleInstance']
+% instances = [instances] unless instances.kind_of? Array
+% instances = instances.group_by {|i| i['RoleName']}
+<%= $terminal.color "ROLES", :bold %>
+% roles = deployment['RoleList']['Role']
+% roles = [roles] unless roles.kind_of? Array
+% roles.each do |role|
+    <%= role['RoleName'] %> (<%= role['OsVersion'] %>)
+% if not expand
+        <%= instances[role['RoleName']].group_by{|i| i['InstanceStatus']}.map{|key, value| "#{value.count} #{key}"}.join(', ') %> (use --expand to see details)
+% else
+% instances[role['RoleName']].each do |instance|
+        <%= instance['InstanceName'] %> (<%= instance['InstanceStatus'] %>)
+% end
+% end
+% end
+<%= $terminal.color "ENDPOINTS", :bold %>
+% endpoints = deployment['InputEndpointList']['InputEndpoint']
+% endpoints = [endpoints] unless endpoints.kind_of? Array
+% endpoints.each do |endpoint|
+    <%= endpoint['Vip'] %>:<%= endpoint['Port'] %> on <%= endpoint['RoleName'] %>
+% end

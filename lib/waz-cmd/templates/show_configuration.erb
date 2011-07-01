@@ -1,0 +1,6 @@
+% roles.each do |role|
+<%= $terminal.color role['name'], :bold %>
+% arrayize(role['ConfigurationSettings']['Setting']).each do |setting|
+    <%= setting['name'] %>: <%= setting['value'] %>
+% end
+% end
