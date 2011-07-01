@@ -8,7 +8,7 @@ Gem::Specification.new do |s|
   s.platform    = Gem::Platform::RUBY
   s.authors     = ["Steve Marx"]
   s.email       = ["Steve.Marx@microsoft.com"]
-  s.homepage    = "http://blog.smarx.com"
+  s.homepage    = "http://github.com/smarx/waz-cmd"
   s.summary     = %q{Command-line tool to manage Windows Azure applications and storage accounts.}
   s.description = %q{This gem allows you to perform most of the available operations in the Windows Azure Service Management API from a friendly commandline tool.}
 
