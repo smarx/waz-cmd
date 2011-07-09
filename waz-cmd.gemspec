@@ -18,7 +18,6 @@ Gem::Specification.new do |s|
   s.require_paths = ["lib"]
 
   s.add_dependency('commander')
-  s.add_dependency('faster_require')
   s.add_dependency('tilt')
   s.add_dependency('crack')
   s.add_dependency('nokogiri')
