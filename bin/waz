@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
 require 'waz-cmd'
+require 'waz-cmd/version'
 require 'commander/import'
 require 'waz-blobs'
 require 'uri'
@@ -9,7 +10,7 @@ require 'fileutils'
 include Waz::Cmd
 
 program :name, 'waz'
-program :version, '1.0'
+program :version, Waz::Cmd::VERSION
 program :description, 'Windows Azure Command-line Tool'
 program :help, 'Author', 'Steve Marx (http://blog.smarx.com, Steve.Marx@microsoft.com, @smarx)'
 
@@ -473,18 +474,24 @@ command 'deploy' do |c|
       blob = container.upload(URI::escape(name), f, 'application/octet-stream')
     end
 
-    make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :post, options,
-      Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
-        xml.CreateDeployment('xmlns' => 'http://schemas.microsoft.com/windowsazure') {
-          xml.Name UUIDTools::UUID.random_create.to_s.gsub '-', ''
-          xml.PackageUrl URI::unescape blob.url
-          xml.Label Base64.encode64 name
-          xml.Configuration Base64.encode64 File.read args[3]
-          xml.StartDeployment 'true'
-          xml.TreatWarningsAsError 'false'
-        }
-      }.to_xml) do |response|
-      wait_for_completion options, response.headers[:x_ms_request_id]
+    config = File.read(args[3])
+    config = config[3..-1] if config[0..2].force_encoding('utf-8') == "\xEF\xBB\xBF".force_encoding('utf-8')
+    begin
+      make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :post, options,
+        Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
+          xml.CreateDeployment('xmlns' => 'http://schemas.microsoft.com/windowsazure') {
+            xml.Name UUIDTools::UUID.random_create.to_s.gsub '-', ''
+            xml.PackageUrl URI::unescape blob.url
+            xml.Label Base64.encode64 name
+            xml.Configuration Base64.encode64 config
+            xml.StartDeployment 'true'
+            xml.TreatWarningsAsError 'false'
+          }
+        }.to_xml) do |response|
+        wait_for_completion options, response.headers[:x_ms_request_id]
+      end
+    rescue => e
+      p e
     end
 
     blob.destroy!
