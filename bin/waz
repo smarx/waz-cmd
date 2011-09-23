@@ -453,15 +453,15 @@ command 'deploy' do |c|
     raise 'Package (.cspkg) is required' unless args[2]
     raise 'Configuration file (.cscfg) is required' unless args[3]
 
-    if options.account.nil?
+    if options.deploymentAccount.nil?
       accounts = arrayize(make_call("services/storageservices", :get, options)['StorageServices']['StorageService'])
       raise 'Must have at least one storage account' unless accounts.length > 0
-      options.account = accounts[0]['ServiceName']
+      options.deploymentAccount = accounts[0]['ServiceName']
     end
 
-    key = make_call("services/storageservices/#{options.account}/keys", :get, options)['StorageService']['StorageServiceKeys']['Primary']
+    key = make_call("services/storageservices/#{options.deploymentAccount}/keys", :get, options)['StorageService']['StorageServiceKeys']['Primary']
 
-    WAZ::Storage::Base.establish_connection!(:account_name => options.account, :access_key => key)
+    WAZ::Storage::Base.establish_connection!(:account_name => options.deploymentAccount, :access_key => key)
     begin
       container = WAZ::Blobs::Container.create('deployments')
     rescue
@@ -474,8 +474,8 @@ command 'deploy' do |c|
       blob = container.upload(URI::escape(name), f, 'application/octet-stream')
     end
 
-    config = File.read(args[3])
-    config = config[3..-1] if config[0..2].force_encoding('utf-8') == "\xEF\xBB\xBF".force_encoding('utf-8')
+    config = open(args[3], 'rt') { |f| f.read }
+    config = config[1..-1] if config[0].force_encoding('utf-8') == "\xEF\xBB\xBF".force_encoding('utf-8')
     begin
       make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :post, options,
         Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
