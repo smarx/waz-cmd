@@ -2,7 +2,7 @@ module Waz
   module Cmd
     begin
       require 'faster_require' if RUBY_PLATFORM =~ /win32|mingw32/
-    rescue
+    rescue LoadError
       puts 'WARNING: Waz will run faster on Windows if you install the "faster_require" gem.'
     end
     require 'rexml/document'
@@ -10,7 +10,7 @@ module Waz
     require 'iconv'
     begin
       require 'Win32/Console/ANSI' if RUBY_PLATFORM =~ /win32|mingw32/
-    rescue
+    rescue LoadError
       puts 'WARNING: Output will look weird on Windows unless you install the "win32console" gem.'
     end
     require 'openssl'

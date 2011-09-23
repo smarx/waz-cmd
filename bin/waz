@@ -476,6 +476,7 @@ command 'deploy' do |c|
 
     config = open(args[3], 'rt') { |f| f.read }
     config = config[1..-1] if config[0].force_encoding('utf-8') == "\xEF\xBB\xBF".force_encoding('utf-8')
+    config = config[3..-1] if config[0..2].force_encoding('utf-8') == "\xEF\xBB\xBF".force_encoding('utf-8')
     begin
       make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :post, options,
         Nokogiri::XML::Builder.new(:encoding => 'utf-8') { |xml|
