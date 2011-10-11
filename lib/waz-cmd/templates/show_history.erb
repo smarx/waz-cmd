@@ -1,4 +1,4 @@
-% if history['SubscriptionOperation'].nil?
+% if history.nil? or history['SubscriptionOperation'].nil?
 No history to display.
 % else
 % operations = history['SubscriptionOperation']

@@ -24,11 +24,15 @@ module Waz
     def set_defaults(options)
       options.default :pem => "#{ENV['HOME']}/.waz/cert.pem", :cer => "#{ENV['HOME']}/.waz/cert.cer", :key => "#{ENV['HOME']}/.waz/key.pem"
       options.default :subscriptionId => $config['subscriptionId'] if $config['subscriptionId']
+      proxy = ENV['https_proxy'] || ENV['HTTPS_PROXY'] || ENV['http_proxy'] || ENV['HTTP_PROXY'] || ENV['all_proxy'] || ENV['ALL_PROXY']
+      proxy = 'https://' + proxy if proxy and not proxy =~ /^https?:\/\//i
+      options.default :proxy => proxy if proxy
     end
 
     def make_call(path, method, options, body=nil)
       headers = { 'x-ms-version' => '2011-06-01' }
       headers['Content-Type'] = 'application/xml' unless body.nil?
+      RestClient.proxy = options.proxy if options.proxy
       options = {
         :url => "https://management.core.windows.net/#{options.subscriptionId}/#{path}",
         :method => method,

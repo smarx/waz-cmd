@@ -18,6 +18,7 @@ global_option '--pem FILE', 'Name of the .pem file containing the management cer
 global_option '--key FILE', 'Name of the .pem file containing the private key, default $HOME/.waz/key.pem'
 global_option '--subscriptionId STRING', 'Subscription ID (a GUID) to operate on'
 global_option '--expand', 'Expand details where possible (like individual role instances). Default is false'
+global_option '--proxy STRING', 'Proxy to use (e.g. http://foo:8080). Default is $https_proxy or $http_proxy'
 
 begin
   $config = YAML::load(File.read("#{ENV['HOME']}/.wazrc"))
@@ -333,8 +334,8 @@ command 'show deployment' do |c|
 end
 
 command 'show history' do |c|
-  c.syntax = 'waz show history <application> <deployment-name> [options]'
-  c.description = 'Show the history of operations on a deployment. Note that deployment name is the GUID of the deployment (find it with something like "waz show deployment <application> production")'
+  c.syntax = 'waz show history <application> <deployment-name or staging/production> [options]'
+  c.description = 'Show the history of operations on a deployment.'
   c.option '--startTime STRING', 'Earliest time to retrieve history, in a form like YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ (defaults to yesterday)'
   c.option '--endTime STRING', 'Latest time to retrieve history, in a form like YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ (defaults to infinity)'
   c.action do |args, options|
@@ -343,6 +344,10 @@ command 'show history' do |c|
     raise 'Subscription ID is required' unless options.subscriptionId
     raise 'Application name is required' unless args.first
     raise 'Deployment name is required' unless args[1]
+    if args[1] == 'staging' or args[1] == 'production' then
+      deployment = make_call("services/hostedservices/#{args[0]}/deploymentslots/#{args[1]}", :get, options)['Deployment']
+      args[1] = deployment['Name']
+    end
     history = make_call("operations?StartTime=#{options.startTime}&EndTime=#{options.endTime}&ObjectIdFilter=/#{options.subscriptionId}/services/hostedservices/#{args[0]}/deployments/#{args[1]}", :get, options)['SubscriptionOperationCollection']['SubscriptionOperations']
     puts Tilt.new(template('show_history.erb'), 1, :trim => '%').render(nil, :history => history)
   end
