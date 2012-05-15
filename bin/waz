@@ -475,7 +475,7 @@ command 'deploy' do |c|
 
     name = File.basename(args[2]).gsub(' ', '') + Time.new.utc.strftime('%Y-%m-%d%H:%M:%S')
     blob = nil
-    open(args[2]) do |f|
+    open(args[2], 'rb') do |f|
       blob = container.upload(URI::escape(name), f, 'application/octet-stream')
     end
 
